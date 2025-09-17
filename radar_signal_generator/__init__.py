@@ -77,6 +77,13 @@ class radar_signal_generator(thesdk):
         self.model='py'
         self.init()
 
+        self.signal_type = None
+        self.T           = 5e-1
+        self.t_start     = 1e-1
+        self.N           = 1024
+        self.fs          = 1e3
+        self.B           = 5e2
+
         if len(arg)>=1:
             parent=arg[0]
             self.copy_propval(parent,self.proplist)
@@ -96,46 +103,42 @@ class radar_signal_generator(thesdk):
         """
         Generates chosen signal type and returns it as "ndarray[np.complex128]" type.
         """
-
-        # Signal
-        signal_type = 'chirp'
-
         # TEMPORARY PARAMETER DEFINITIONS (replace with self.config)
-        rect_config     = rect_attrib(T=1e-3, t_start=1e-4, N=1000, fs=1e6)
-        chirp_config    = chirp_attrib(T=1e-3, B=10, N=1024)
+        rect_config     = rect_attrib(T=1e-4, t_start=1e-4, N=1024, fs=1e6)
+        chirp_config    = chirp_attrib(T=1e-4, B=100, N=1024)
                 
-        match signal_type: 
+        match self.signal_type: 
             case 'rect':
-                return self.rect(rect_config)
+                return self.rect()
             case 'chirp':
-                return self.chirp(chirp_config)
-            # TODO: case 'binary_coded_PSK': 
+                return self.chirp()
+            # TODO: case 'binary_coded_PSK': 1e-3
             case _:
                 self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.signal_type)
                 return None
 
-
-    def rect(self, config: rect_attrib):
+    def rect(self):
         """
         Parameters:
         rect_config(T, t_start, N, fs)  # Rect signal attributes
         ----------
-        Returns:
-        x : ndarray(dtype=complex128)   # Generated pulse waveform I/Q samples
+        Returns:[:64]
+        x : ndar[:64]ray(dtype=complex128)   # Generated pulse waveform I/Q samples
 
         """
-        T, t_start, N, fs = config.T, config.t_start, config.N, config.fs
-        fs, N = self.fs, self.nsamp
+        T, t_start, N, fs = self.T, self.t_start, self.N, self.fs
+
+        fs, N = self.fs, self.N
 
         n_high = int(T*fs)
         n_start = int(t_start*fs)
         n_end = min(N, n_start + n_high)
         x = np.zeros(N, dtype=np.complex128)
         x[n_start:n_end] = np.ones(n_end-n_start, dtype=np.complex128)
-
+        
         return x
 
-    def chirp(self, config: chirp_attrib):
+    def chirp(self):
         """
         Parameters:
         chirp_config(T, B, N)  # Rect signal attributes
@@ -145,21 +148,21 @@ class radar_signal_generator(thesdk):
         """
         import scipy
 
-        #T, B, N = config.T, config.B, config.N
-        #fs, Nr = self.fs, self.nsamp
+        #N, T = 1024, 0.01
+        #chirp_pulse = scipy.signal.chirp(t, f0=0, f1=10, t1=10, method='linear', complex=True)
 
-        N, T = 1000, 0.01
+        T, B, N = self.T, self.B, self.N
+        fs, Nr = self.fs, self.N
+
         t = np.arange(N) * T
-        chirp_pulse = scipy.signal.chirp(t, f0=6, f1=1, t1=10, method='linear', complex=True)
+        n_end = int(T*fs)
+        t = np.arange(n_end)/fs
 
-        ## Derived parameters
-        #n_end = int(T*fs)
-        #t = np.arange(n_end)/fs
-        #f1 = -B/2
-        #f2 = B/2
+        f1 = -B/2
+        f2 = B/2
 
-        ## Generate chirp I/Q samples
-        #chirp_pulse = np.zeros(Nr, dtype=np.complex128)
+        chirp_pulse = np.zeros(Nr, dtype=np.complex128)
+        chirp_pulse[:n_end] = scipy.signal.chirp(t, f1, T, f2, method='linear', complex=True)
         #chirp_pulse[:n_end].real = scipy.signal.chirp(t, f1, T, f2, method='linear', phi=90)
         #chirp_pulse[:n_end].imag = scipy.signal.chirp(t, f1, T, f2, method='linear', phi=0)
 
@@ -169,29 +172,48 @@ class radar_signal_generator(thesdk):
 if __name__=="__main__":
     from  radar_signal_generator import *
     from  iq_plotting import *
+    from  dsp_toolkit import *
     import pdb
     import matplotlib.pyplot as plt
-
+    
+    # Instantiate dut
     dut = radar_signal_generator()
+    
+    # Define test params
+    dut.signal_type = "chirp"
+    #dut.signal_type = "rect"
+
+    # Set model and run
     dut.model = 'py'
     x = dut.run()
-
-    n = np.arange(2**20)
-    #fs = 2**20
+       
+    n = dut.N
     fs = dut.fs
-    #x = np.concatenate((np.ones(10), np.zeros(len(n)-10))) + 0j*np.zeros(len(n)) # Working test signal
+
+    # Genearte header file
+    # TODO: Adjust scaling coefficient for header generation
+    header_scaling_coeff = 65536
     x_scaled = scale_dbm(x, -30)
+    if True: 
+        dsp_toolkit.generate_header(
+            x,
+            I = x_scaled.real*header_scaling_coeff, 
+            Q = x_scaled.imag*header_scaling_coeff, 
+            header_file_path = "generated_header.h"
+       )
+
+    x_scaled = scale_dbm(x, -30)
+
     # time-domain
     plt.figure()
-    plt.plot(x_scaled.real[:64], 'blue')
-    plt.plot(x_scaled.imag[:64], 'red')
+    plt.plot(x_scaled.real, 'blue')
+    plt.plot(x_scaled.imag, 'red')
     plt.legend(['I','Q'])
     # spectrum
     plt.figure()
     plt.grid()
     plt.ylabel("dBm")
-    plot_bb_spectrum(x_scaled,fs,scale='v2dbm',window='rect', color='black', ylim=[-70,10])
-    #plot_bb_spectrum(x_scaled,fs,scale='dbfs',window='rect', color='black', ylim=[-70,10])
+    plot_bb_spectrum(x_scaled, dut.fs, scale='v2dbm', window='rect', color='black', ylim=[-70,10])
 
     # Show plot
     plt.show()
