@@ -18,23 +18,10 @@ import scipy.signal as scsig
 import tempfile
 import pdb
 
-from dataclasses import dataclass
 
 from thesdk import *
 from vhdl import *
 
-@dataclass
-class rect_attrib:
-    T       : float      # Pulse width [s]      
-    t_start : float      # Pulse start time [s]
-    N       : int        # Numbe of samples
-    fs      : float      # Sample rate [smaples/s]
-
-@dataclass
-class chirp_attrib:
-    T       : float      # Pulse width [s]
-    B       : float      # Sweep bandwidth [s]
-    N       : int        # Number of samples [samples/s]
 
 class radar_signal_generator(thesdk):
     """
