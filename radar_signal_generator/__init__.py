@@ -1,6 +1,6 @@
 """
 ================
-Signal Generator
+Radar signal Generator
 ================
 
 Multi-purpose signal generator for The SyDeKick. Can generate sine waves and
@@ -18,10 +18,8 @@ import scipy.signal as scsig
 import tempfile
 import pdb
 
-
 from thesdk import *
 from vhdl import *
-
 
 class radar_signal_generator(thesdk):
     """
@@ -37,72 +35,69 @@ class radar_signal_generator(thesdk):
     def __init__(self,*arg): 
         self.print_log(type='I', msg='Initializing %s' %(__name__)) 
         self.proplist = ['sig_freq','lo_freq','sig_amp','sig_cm','coherent','tau','sig_phase','sig_osr','nsamp','fs','extra_sampl', 'nonoverlap_period']
-        self.sig_freq = 1e6
-        self.lo_freq = 0
-        self.sig_amp = 0.5
-        self.tau = 0
-        self.sig_cm = 0
-        self.sig_phase = 0
-        self.sig_osr = 1
-        self.nsamp = 1024
-        self.extra_sampl = 0
-        self.fs = 2e9
-        self.snr = 0
-        self.jitter_sd = None
-        self.coherent = False
-        self.sigtype = 'sine'
-        self.high = 1
-        self.low = 0
-        self.after = 0
-        self.duty = 0.5
-        self.trise = 5e-12
-        self.tfall = 5e-12
-        self.nonoverlap_period = 40e-12
-        self.slopetype='rising'
+        self.sig_freq       = 1e6
+        #self.sig_osr       = 1
+        #self.nsamp         = 1024
+        #self.extra_sampl   = 0
+        #self.snr           = 0
+        #self.jitter_sd     = None
+        #self.sigtype       = 'sine'
+        #self.high          = 1
+        #self.low           = 0
+        #self.after         = 0
+        #self.duty          = 0.5
+        #self.trise         = 5e-12
+        #self.tfall         = 5e-12
+
+        self.signal_type    = 'chirp'
+        self.T              = 5e-1 # Replace this with tfall
+        self.t_start        = 1e-1 # Change this to trise 
+        self.N              = 1024 # Change this to nsamp
+        self.fs             = 1e3   
+        self.B              = 5e2  # Change this to bw
+
+        # IO
         self.IOS=Bundle()
-        self.IOS.Members['out']= IO()
-        self.model='py'
+        self.IOS.Members['I_OUT'] = IO()
+        self.IOS.Members['Q_OUT'] = IO()
+
         self.init()
 
-        self.signal_type = None
-        self.T           = 5e-1
-        self.t_start     = 1e-1
-        self.N           = 1024
-        self.fs          = 1e3
-        self.B           = 5e2
+        # self.bandwidth
+        # self.pulse_length
+        # self.start_time       # delay
 
-        if len(arg)>=1:
-            parent=arg[0]
-            self.copy_propval(parent,self.proplist)
-            self.parent =parent;
+        #if len(arg)>=1:
+        #    parent=arg[0]
+        #    self.copy_propval(parent,self.proplist)
+        #    self.parent =parent;
 
     def init(self):
         pass
 
     def run(self,*arg):
-        if self.model=='py':
-            return self.main()
-
-        else: 
-            pass
+        self.main()
 
     def main(self):
         """
         Generates chosen signal type and returns it as "ndarray[np.complex128]" type.
         """
-        # TEMPORARY PARAMETER DEFINITIONS (replace with self.config)
-        rect_config     = rect_attrib(T=1e-4, t_start=1e-4, N=1024, fs=1e6)
-        chirp_config    = chirp_attrib(T=1e-4, B=100, N=1024)
-                
+        # Outputs
+
+        # Chosen signal type is assigned to outputs via outval
         match self.signal_type: 
             case 'rect':
-                return self.rect()
+                outval_IQ = self.rect()
             case 'chirp':
-                return self.chirp()
-            # TODO: case 'binary_coded_PSK': 1e-3
+                outval_IQ = self.chirp()
+            # TODO: case 'binary_phase_coded:
             case _:
                 self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.signal_type)
                 return None
+
+        self.IOS.Members['I_OUT'].Data = outval_IQ.real
+        self.IOS.Members['Q_OUT'].Data = outval_IQ.imag               
+
 
     def rect(self):
         """
@@ -122,7 +117,7 @@ class radar_signal_generator(thesdk):
         n_end = min(N, n_start + n_high)
         x = np.zeros(N, dtype=np.complex128)
         x[n_start:n_end] = np.ones(n_end-n_start, dtype=np.complex128)
-        
+
         return x
 
     def chirp(self):
@@ -135,26 +130,20 @@ class radar_signal_generator(thesdk):
         """
         import scipy
 
-        #N, T = 1024, 0.01
-        #chirp_pulse = scipy.signal.chirp(t, f0=0, f1=10, t1=10, method='linear', complex=True)
-
         T, B, N = self.T, self.B, self.N
         fs, Nr = self.fs, self.N
 
         t = np.arange(N) * T
         n_end = int(T*fs)
         t = np.arange(n_end)/fs
-
+#
         f1 = -B/2
         f2 = B/2
 
         chirp_pulse = np.zeros(Nr, dtype=np.complex128)
         chirp_pulse[:n_end] = scipy.signal.chirp(t, f1, T, f2, method='linear', complex=True)
-        #chirp_pulse[:n_end].real = scipy.signal.chirp(t, f1, T, f2, method='linear', phi=90)
-        #chirp_pulse[:n_end].imag = scipy.signal.chirp(t, f1, T, f2, method='linear', phi=0)
 
         return chirp_pulse
-
 
 if __name__=="__main__":
     from  radar_signal_generator import *
@@ -172,7 +161,9 @@ if __name__=="__main__":
 
     # Set model and run
     dut.model = 'py'
-    x = dut.run()
+    #x = dut.run()
+    dut.run()
+    x = np.complex128(dut.IOS.Members['I_OUT'].Data + 1j * dut.IOS.Members['Q_OUT'].Data)
        
     n = dut.N
     fs = dut.fs
