@@ -11,8 +11,7 @@ pulse-shape signals.
 import os
 import sys
 if not (os.path.abspath('../../thesdk') in sys.path):
-    sys.path.append(os.path.abspath('../../thesdk'))
-
+    sys.path.append(os.path.abspath('../../thesdk')) 
 import numpy as np
 import scipy.signal as scsig
 import tempfile
@@ -58,8 +57,9 @@ class radar_signal_generator(thesdk):
 
         # IO
         self.IOS=Bundle()
-        self.IOS.Members['I_OUT'] = IO()
-        self.IOS.Members['Q_OUT'] = IO()
+        self.IOS.Members['IQ_OUT'] = IO()
+        #self.IOS.Members['I_OUT'] = IO()
+        #self.IOS.Members['Q_OUT'] = IO()
 
         self.init()
 
@@ -90,13 +90,15 @@ class radar_signal_generator(thesdk):
                 outval_IQ = self.rect()
             case 'chirp':
                 outval_IQ = self.chirp()
-            # TODO: case 'binary_phase_coded:
+            # Other possible waveforms (source: Merrill I. Skolnik. Introduction to Radar Systems. ): 
+            #'binary_phase_coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
             case _:
                 self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.signal_type)
                 return None
 
-        self.IOS.Members['I_OUT'].Data = outval_IQ.real
-        self.IOS.Members['Q_OUT'].Data = outval_IQ.imag               
+        #self.IOS.Members['I_OUT'].Data = outval_IQ.real
+        #self.IOS.Members['Q_OUT'].Data = outval_IQ.imag               
+        self.IOS.Members['IQ_OUT'].Data = outval_IQ
 
 
     def rect(self):
@@ -136,9 +138,11 @@ class radar_signal_generator(thesdk):
         t = np.arange(N) * T
         n_end = int(T*fs)
         t = np.arange(n_end)/fs
-#
-        f1 = -B/2
-        f2 = B/2
+
+        f0 = 1e6
+
+        f1 = f0 -B/2
+        f2 = f0 + B/2
 
         chirp_pulse = np.zeros(Nr, dtype=np.complex128)
         chirp_pulse[:n_end] = scipy.signal.chirp(t, f1, T, f2, method='linear', complex=True)
@@ -163,7 +167,8 @@ if __name__=="__main__":
     dut.model = 'py'
     #x = dut.run()
     dut.run()
-    x = np.complex128(dut.IOS.Members['I_OUT'].Data + 1j * dut.IOS.Members['Q_OUT'].Data)
+    #x = np.complex128(dut.IOS.Members['I_OUT'].Data + 1j * dut.IOS.Members['Q_OUT'].Data)
+    x = np.complex128(dut.IOS.Members['IQ_OUT'].Data)
        
     n = dut.N
     fs = dut.fs
