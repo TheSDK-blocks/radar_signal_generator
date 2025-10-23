@@ -48,18 +48,17 @@ class radar_signal_generator(thesdk):
         #self.trise         = 5e-12
         #self.tfall         = 5e-12
 
-        self.signal_type    = 'chirp'
-        self.T              = 5e-1 # Replace this with tfall
-        self.t_start        = 1e-1 # Change this to trise 
-        self.N              = 1024 # Change this to nsamp
-        self.fs             = 1e3   
-        self.B              = 5e2  # Change this to bw
+        self.sigtype        = 'chirp'
+        self.tfall          = 5e-1  # Replace this with tfall
+        self.trise          = 0     # Change this to trise 
+        self.nsamp          = 1024  # number of samples
+        self.fs             = 1e3   # sample rate
+        self.bw             = 5e2   # bandwidth
+
 
         # IO
         self.IOS=Bundle()
         self.IOS.Members['IQ_OUT'] = IO()
-        #self.IOS.Members['I_OUT'] = IO()
-        #self.IOS.Members['Q_OUT'] = IO()
 
         self.init()
 
@@ -85,19 +84,17 @@ class radar_signal_generator(thesdk):
         # Outputs
 
         # Chosen signal type is assigned to outputs via outval
-        match self.signal_type: 
+        match self.sigtype: 
             case 'rect':
                 outval_IQ = self.rect()
             case 'chirp':
                 outval_IQ = self.chirp()
-            # Other possible waveforms (source: Merrill I. Skolnik. Introduction to Radar Systems. ): 
+            # Other possible waveforms: 
             #'binary_phase_coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
             case _:
-                self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.signal_type)
+                self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.sigtype)
                 return None
 
-        #self.IOS.Members['I_OUT'].Data = outval_IQ.real
-        #self.IOS.Members['Q_OUT'].Data = outval_IQ.imag               
         self.IOS.Members['IQ_OUT'].Data = outval_IQ
 
 
@@ -110,9 +107,9 @@ class radar_signal_generator(thesdk):
         x : ndar[:64]ray(dtype=complex128)   # Generated pulse waveform I/Q samples
 
         """
-        T, t_start, N, fs = self.T, self.t_start, self.N, self.fs
-
-        fs, N = self.fs, self.N
+        #T, t_start, N, fs = self.T, self.t_start, self.N, self.fs
+        #fs, N = self.fs, self.N
+        T, t_start, N, fs = self.tfall, self.tstart, self.nsamp, self.fs
 
         n_high = int(T*fs)
         n_start = int(t_start*fs)
@@ -132,8 +129,11 @@ class radar_signal_generator(thesdk):
         """
         import scipy
 
-        T, B, N = self.T, self.B, self.N
-        fs, Nr = self.fs, self.N
+        #T, B, N = self.T, self.B, self.N
+        #fs, Nr = self.fs, self.N
+        T, B, N = self.tfall, self.bw, self.nsamp
+        fs, Nr = self.fs, self.nsamp
+
 
         t = np.arange(N) * T
         n_end = int(T*fs)
@@ -146,6 +146,7 @@ class radar_signal_generator(thesdk):
 
         chirp_pulse = np.zeros(Nr, dtype=np.complex128)
         chirp_pulse[:n_end] = scipy.signal.chirp(t, f1, T, f2, method='linear', complex=True)
+        #chirp_pulse[:n_end] = scipy.signal.chirp(0, f1, T, f2, method='linear', complex=True)
 
         return chirp_pulse
 
