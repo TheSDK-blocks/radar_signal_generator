@@ -2,6 +2,7 @@ import scipy
 import matplotlib
 import numpy as np
 import matplotlib.pyplot as plt
+from radar_signal_generator import RadarChirpParameters
 
 # set sensible default values for matplotlib style
 matplotlib.rcParams['lines.linewidth'] = 2
@@ -13,6 +14,7 @@ matplotlib.rcParams['font.size'] = 8
 matplotlib.rcParams['figure.autolayout'] = True
 
 def plot_bb_spectrum(x, fs, scale='dbfs', annotate_max=False, window='rect', color='red', ylim=[-100,10]):
+  plt.figure()
   N = len(x)
 
   # Apply windowing function
@@ -89,21 +91,43 @@ def plot_bb_spectrum(x, fs, scale='dbfs', annotate_max=False, window='rect', col
   return (f2, X2)
 
 def scale_dbm(x, dbm):
-  """Scale signal amplitude so that its peak power has `dbm` power"""
-  P_abs = 0.001 * 10**(dbm/10)
+    """Scale signal amplitude so that its peak power has `dbm` power"""
+    P_abs = 0.001 * 10**(dbm/10)
 
-  # measure peak power of original signal
-  N = len(x)
-  # no need to window because we are analyzing periodic signals with transients
-  X = scipy.fft.fft(x) / N
-  P = (np.abs(X)**2)/(2*50)
-  P_max = np.max(P)
+    # measure peak power of original signal
+    N = len(x)
+    # no need to window because we are analyzing periodic signals with transients
+    X = scipy.fft.fft(x) / N
+    P = (np.abs(X)**2)/(2*50)
+    P_max = np.max(P)
 
-  # required gain
-  gain_abs = P_abs / P_max
-  gain_ampl = np.sqrt(gain_abs)
+    # required gain
+    gain_abs = P_abs / P_max
+    gain_ampl = np.sqrt(gain_abs)
 
-  return x * gain_ampl
+    return x * gain_ampl
+
+def plot_simple(x, fs, label="Time-domain signal"):
+    t = np.arange(len(x))/fs
+    plt.figure()
+    plt.plot(t*1e6, np.real(x), 'k', marker='o', markersize=1)
+    plt.xlabel("Time (µs)")
+    plt.ylabel("Value")
+    plt.title(label)
+    plt.grid(True)
+    #plt.show()
+
+def plot_spectrum(s, fs, title="Spectrum"):
+    L = len(s)
+    S = np.fft.fftshift(np.fft.fft(s))
+    f = np.fft.fftshift(np.fft.fftfreq(L, 1/fs))
+    plt.figure()
+    plt.plot(f/1e6, 20*np.log10(np.abs(S)+1e-12), 'k', marker='o', markersize=1)
+    plt.xlabel("Frequency (MHz)")
+    plt.ylabel("Magnitude (dB)")
+    plt.title(title)
+    plt.grid(True)
+    #plt.show()
 
 if __name__ == "__main__":
   # test scale_dbm
