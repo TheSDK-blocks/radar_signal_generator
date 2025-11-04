@@ -2,10 +2,6 @@
 ================
 Radar signal Generator
 ================
-
-Multi-purpose signal generator for The SyDeKick. Can generate sine waves and
-pulse-shape signals.
-
 """
 
 import os
@@ -18,55 +14,57 @@ import tempfile
 import pdb
 from dataclasses import dataclass
 
+# The SyDeKick imports
+from thesdk import IO
+from acoretestbenches.generic_sim_testbenches import GenericTheSydekickSimTestbench
+from plot_format                import set_style
+from signal_analyser            import signal_analyser
+
 from thesdk import *
 from vhdl import *
 
 @dataclass
 class RadarRectParameters:
     fs: float           = None          # Sample rate
-    pulse_time: float  = None          # Pulse width (s)
+    pulse_time: float   = None          # Pulse width (s)
     prf: float          = None          # Pulse repetition frequency (f)
-    nsamp: int          = None          # Number of samples in the chirp
+    nsamp: int          = None          # Number of samples in the signal
     phase: float        = None          # Phase offset
     window: str         = None          # Windowing algorithm for smooth transitions
 
 @dataclass
 class RadarChirpParameters:
     fs: float           = None          # Sample rate
-    pulse_time: float  = None          # Pulse width (s)
+    pulse_time: float   = None          # Pulse width (s)
     prf: float          = None          # Pulse repetition frequency (f)
     bw: float           = None          # Modulation bandwith (f)
-    nsamp: int          = None          # Number of samples in the chirp
+    nsamp: int          = None          # Number of samples in the signal
     phase: float        = None          # Phase offset
     window: str         = None          # Windowing algorithm for smooth transitions
 
-class radar_signal_generator(thesdk):
+#class radar_signal_generator(thesdk):
+class radar_signal_generator(GenericTheSydekickSimTestbench):
     """
-    Attributes:
-    TODO
+    Radar Signal Generator
     """
 
     @property
     def _classfile(self):
         return os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
 
-    def __init__(self,*arg): 
+    def __init__(self, **kwargs): 
         self.print_log(type='I', msg='Initializing %s' %(__name__)) 
         
         ## Constants
         self.__c            = 299792458 # m/s
 
-        ## Calculated values
-        #self.__duty         = self.pulse_time/self.prf
-
         # Radar siggen attributes
-        self.params = None
+        self.params = kwargs.get('signal_params')
 
         # IO
-        self.IOS=Bundle()
         self.IOS.Members['IQ_OUT'] = IO()
 
-    def run(self,*arg):
+    def run(self):
         self.main()
 
     def main(self):
@@ -75,20 +73,21 @@ class radar_signal_generator(thesdk):
             Main method for the radar signal generator. 
             1. Generates correct signal type based in given params
             2. Windows the signal to smoothen the pulse edge transients
-            3. Routes the signal to output IO
+            3. Assigns the signal to output IO
         """
         outval_IQ = None
 
         #pulse_repetitions = self.params.nsamp // time_as_samples(pulse_time)
         #for _ in range(pulse_repetitions)
 
+
         # Chosen signal type is assigned to outputs via outval
         match self.signal_type(): 
             case 'rect': 
               outval_IQ = self.rect()
             case 'chirp': 
-              #outval_IQ = self.chirp()
-              outval_IQ = self.chirp_bb()
+              outval_IQ = self.chirp()
+              #outval_IQ = self.chirp_bb()
             # Other possible waveforms: 
             #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
             case _:
@@ -96,42 +95,8 @@ class radar_signal_generator(thesdk):
         outval_IQ = self.apply_window(outval_IQ)
         self.IOS.Members['IQ_OUT'].Data = outval_IQ
 
-    def apply_window(self, s):
-        """
-        Description:
-            Applies selected window type to input signal. Main purpose is to smoothen the transient 
-            at the end of the pulse.
-        Parameters:
-            s: np.complex128    = unwindowed radar signal
-        Returns:  
-            s: np.compex128     = windowed signal
-        """
-        
-        from scipy.signal.windows import tukey
 
-        window = self.params.window
-
-        w = np.ones_like(s)
-        if window == 'no':
-            w = w
-        elif window == 'hamming':
-            w = np.hamming(len(s))
-        elif window == 'hann':
-            w = np.hanning(len(s))
-        elif window == 'tukey':
-            # Tukey alpha ~= 2*edge_frac so that each edge gets edge_frac of the pulse
-            edge_frac = 0.08    # NOTE: Use this to control tukey effectiveness
-            L = int(self.time_as_samples(self.params.pulse_time))
-            w_short = tukey(L, alpha=2*edge_frac)
-            w = s
-            w[:L] *= w_short
-        else:
-            self.print_log(type='W',msg='\'%s\' is not a valid windowing method. Defaulting to no window.' % self.param.window)
-
-            s = s * w
-
-        return s
-
+    # ----- Signal Type Generators ----- #
     def rect(self):
         """
         Parameters:
@@ -181,30 +146,42 @@ class radar_signal_generator(thesdk):
 
         return chirp_pulse
 
-    def chirp_bb(self):
+    # ----- Signal Processing ----- #
+    def apply_window(self, s):
         """
         Description:
-            Generates a base-band chirp signal based in configured params.
-        Returns:
-            chirp_pulse: np.complex128 = generated chirp signal
+            Applies selected window type to input signal. Main purpose is to smoothen the transient 
+            at the end of the pulse.
+        Parameters:
+            s: np.complex128    = unwindowed radar signal
+        Returns:  
+            s: np.compex128     = windowed signal
         """
-        fs = self.params.fs
-        f0 = 0
-        T = self.params.pulse_time 
-        B = self.params.bw
-        N = self.params.nsamp
-        phi=-np.pi/2
+        
+        from scipy.signal.windows import tukey
 
-        t = np.arange(0, T, 1/fs)
-        mu = B / T                      # chirp rate
-        #f_start =0 #max(f0, 1e-9)         # start just above 0 for one-sided baseband
-        #phase = 2*np.pi*(f_start*t + 0.5*mu*t**2) + phi
-        phase = 2*np.pi*(f0*t + 0.5*mu*t**2) + phi
-        s = np.exp(1j * phase)          # analytic (I/Q) chirp
-        out = np.zeros(N, dtype=np.complex128)
-        out[:len(s)] = s[:N]
+        window = self.params.window
 
-        return out
+        w = np.ones_like(s)
+        if window == 'no':
+            w = w
+        elif window == 'hamming':
+            w = np.hamming(len(s))
+        elif window == 'hann':
+            w = np.hanning(len(s))
+        elif window == 'tukey':
+            # Tukey alpha ~= 2*edge_frac so that each edge gets edge_frac of the pulse
+            edge_frac = 0.04    # NOTE: Use this to control tukey effectiveness
+            L = int(self.time_as_samples(self.params.pulse_time))
+            w_short = tukey(L, alpha=2*edge_frac)
+            w = s
+            w[:L] *= w_short
+        else:
+            self.print_log(type='W',msg='\'%s\' is not a valid windowing method. Defaulting to no window.' % self.param.window)
+
+            s = s * w
+
+        return s
 
     def signal_type(self):
         sig_type = None
@@ -243,6 +220,15 @@ class radar_signal_generator(thesdk):
         """
         return self.__c * (self.repetition_time() - self.params.pulse_time)
 
+    def min_signal_range(self):
+        """
+        Description:
+          Calculates minimum range (assuming the transmission and reception cannot overlap)
+        Returns:
+          min_signal_range: float = 
+        """
+        return self.__c * self.params.pulse_time / 2
+
     def osr(self): 
         """
         Description:
@@ -262,13 +248,6 @@ class radar_signal_generator(thesdk):
         """
         return self.__c / (2*self.params.bw)
 
-    def min_signal_range(self):
-        """
-        Description:
-          Calculates 
-        Returns:
-        """
-        return self.__c * self.params.pulse_time / 2
         
     def signal_time(self):
         """
@@ -330,12 +309,12 @@ if __name__=="__main__":
 
     test_cases = {
         'chirp_test':
-        RadarChirpParameters(
-              fs            = 400e6,      # Sample rate
-              pulse_time   = 1e-6,        # Length of the radar pulse in seconds
+        RadarChirpParameters( # TODO: Find realistic specs from some source
+              fs            = 100e6,      # Sample rate
+              pulse_time    = 50e-6,        # Length of the radar pulse in seconds
               prf           = 14e3,       # Pulse repetition frequency
-              bw            = 100e6,       # Bandwidth of the chirp linear frequency modulation
-              nsamp         = 2**10,      # Number of samples in the output (total length of the generated signal)
+              bw            = 1e6,       # Bandwidth of the chirp linear frequency modulation
+              nsamp         = 2**13,      # Number of samples in the output (total length of the generated signal)
               phase         = np.pi/2,    # Phase offset
               window        = 'tukey',    # Windowing algorithm for smooth transients
         )
@@ -360,24 +339,13 @@ if __name__=="__main__":
             Q = r_scaled.imag*header_scaling_coeff, 
             header_file_path = "generated_header.h"
        )
+
+    # TODO: plotting with signal analyser
     
     plot_simple(r, dut.params.fs, label='Chirp')
-    #plot_spectrum(r, dut.params.fs, title='Chirp')
     plot_bb_spectrum(r, 400e6, scale='dbfs', window='rect', color='black', ylim=[-100,10])
-
     dut.print_signal_specs()
     
-
-    ## time-domain
-    #plt.figure()
-    #plt.plot(r_scaled.real, 'blue')
-    #plt.plot(r_scaled.imag, 'red')
-    #plt.legend(['I','Q'])
-    ## spectrum
-    #plt.figure()
-    #plt.grid()
-    #plt.ylabel("dBm")
-    #plot_bb_spectrum(r_scaled, dut.params.fs, scale='v2dbm', window='rect', color='black', ylim=[-70,10])
 
     # Show plot
     plt.show()
