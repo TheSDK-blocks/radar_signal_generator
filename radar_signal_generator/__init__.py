@@ -24,23 +24,27 @@ from thesdk import *
 from vhdl import *
 
 @dataclass
-class RadarRectParameters:
+class GenericSignalParameters:
+    """
+    All generic signal parameters common to all signal types
+    """
     fs: float           = None          # Sample rate
-    pulse_time: float   = None          # Pulse width (s)
-    prf: float          = None          # Pulse repetition frequency (f)
     nsamp: int          = None          # Number of samples in the signal
-    phase: float        = None          # Phase offset
-    window: str         = None          # Windowing algorithm for smooth transitions
 
 @dataclass
-class RadarChirpParameters:
-    fs: float           = None          # Sample rate
+class GenericPulsedRadarSignalParameters(GenericSignalParameters):
     pulse_time: float   = None          # Pulse width (s)
     prf: float          = None          # Pulse repetition frequency (f)
-    bw: float           = None          # Modulation bandwith (f)
-    nsamp: int          = None          # Number of samples in the signal
     phase: float        = None          # Phase offset
     window: str         = None          # Windowing algorithm for smooth transitions
+    
+@dataclass
+class RadarRectParameters(GenericSignalParameters):
+    none = None
+
+@dataclass
+class RadarChirpParameters(GenericPulsedRadarSignalParameters):
+    bw: float           = None          # Modulation bandwith (f)
 
 #class radar_signal_generator(thesdk):
 class radar_signal_generator(GenericTheSydekickSimTestbench):
@@ -75,11 +79,12 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
             2. Windows the signal to smoothen the pulse edge transients
             3. Assigns the signal to output IO
         """
+        #outval_IQ = np.array([])
+        #pulse_time = 1/self.params.prf
+
+        #pulse_repetitions = self.params.nsamp // self.time_as_samples(pulse_time)
+        #for _ in range(pulse_repetitions):
         outval_IQ = None
-
-        #pulse_repetitions = self.params.nsamp // time_as_samples(pulse_time)
-        #for _ in range(pulse_repetitions)
-
 
         # Chosen signal type is assigned to outputs via outval
         match self.signal_type(): 
@@ -93,6 +98,7 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
             case _:
                 self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
         outval_IQ = self.apply_window(outval_IQ)
+        #outval_IQ = np.concatenate((outval_IQ, self.apply_window(outval_IQ)))
         self.IOS.Members['IQ_OUT'].Data = outval_IQ
 
 
