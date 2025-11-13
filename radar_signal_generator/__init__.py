@@ -8,11 +8,6 @@ import os
 import sys
 if not (os.path.abspath('../../thesdk') in sys.path):
     sys.path.append(os.path.abspath('../../thesdk')) 
-import numpy as np
-import scipy.signal as scsig
-import tempfile
-import pdb
-from dataclasses import dataclass
 
 # The SyDeKick imports
 from thesdk import IO
@@ -22,6 +17,12 @@ from signal_analyser            import signal_analyser
 
 from thesdk import *
 from vhdl import *
+
+# Python imports
+import numpy as np
+import scipy.signal as scsig
+import tempfile
+from dataclasses import dataclass
 
 @dataclass
 class GenericSignalParameters:
