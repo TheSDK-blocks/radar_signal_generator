@@ -1,1 +1,3 @@
 __pycache__/
+Makefile
+radar_signal_generator/generated_header.h
