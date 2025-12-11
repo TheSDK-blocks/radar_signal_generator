@@ -225,7 +225,7 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         Returns:
             radar_range: int = number of samples
         """
-        return self.__c * (self.repetition_time() - self.params.pulse_time)
+        return (self.__c * (self.repetition_time() - self.params.pulse_time)) / 2
 
     def min_signal_range(self):
         """
