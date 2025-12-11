@@ -31,6 +31,7 @@ class GenericSignalParameters:
     """
     fs: float           = None          # Sample rate
     nsamp: int          = None          # Number of samples in the signal
+    snr: float          = None
 
 @dataclass
 class GenericPulsedRadarSignalParameters(GenericSignalParameters):
