@@ -10,50 +10,77 @@ if not (os.path.abspath('../../thesdk') in sys.path):
     sys.path.append(os.path.abspath('../../thesdk')) 
 
 # The SyDeKick imports
-from thesdk import IO
-from acoretestbenches.generic_sim_testbenches import GenericTheSydekickSimTestbench
+from thesdk import *
+#from thesdk import IO
 from plot_format                import set_style
 from signal_analyser            import signal_analyser
 
-from thesdk import *
-from vhdl import *
-
 # Python imports
 import numpy as np
-import scipy.signal as scsig
-import tempfile
+import scipy.constants as const
 from dataclasses import dataclass
+from math import floor, ceil
+from scipy.signal import chirp
+
+# ------------------------------------------------------------
+# NOTE: Use Generic* dataclasses for inheritance when creating specific signal types
 
 @dataclass
 class GenericSignalParameters:
-    """
-    All generic signal parameters common to all signal types
+    """ All signal parameters common to all signal types. This is inherited 
+    to create custom singal types. 
     """
     fs: float           = None          # Sample rate
     nsamp: int          = None          # Number of samples in the signal
     snr: float          = None
+    amp: float          = None          # Amplitude of the generated signal
 
 @dataclass
 class GenericPulsedRadarSignalParameters(GenericSignalParameters):
+    """ All parameteres common to pulsed radar signals 
+    """
+    # Given parameters
     pulse_time: float   = None          # Pulse width (s)
-    prf: float          = None          # Pulse repetition frequency (f)
+    prf: list[float]    = None          # Pulse repetition frequency (f)
     phase: float        = None          # Phase offset
     window: str         = None          # Windowing algorithm for smooth transitions
-    
+
+# ------------------------------------------------------------
+# NOTE: Define signal specific dataclasses here
+
 @dataclass
-class RadarRectParameters(GenericSignalParameters):
-    none = None
+class RadarRectParameters(GenericPulsedRadarSignalParameters):
+    """ Extends pulsed radar signals with sinusoidal rect signal.
+    Simplest pulsed radar signal, hence same parameters than generic pulsed radar signals.
+    """
+    pass
 
 @dataclass
 class RadarChirpParameters(GenericPulsedRadarSignalParameters):
-    bw: float           = None          # Modulation bandwith (f)
-
-#class radar_signal_generator(thesdk):
-class radar_signal_generator(GenericTheSydekickSimTestbench):
+    """ Extends pulsed radar signals with LFM chirp parameters
     """
-    Radar Signal Generator
-    """
+    bw: float           = None          # Modulation bandwith (f)   
 
+# TODO: Add dataclasses for new signal types here. 
+#       For example:
+#           BinaryPhaseCodedParameters(GenericPulsedRadarSignalParameters): 
+#           FrequencyModulatedContinuousWaveform(GenericSignalParameters): # FMCW
+
+# ------------------------------------------------------------
+
+class radar_signal_generator(thesdk):
+    """
+    Radar Signal Generator:
+        This entity generates a radar signal based on given radar signal dataclass
+        Supported waveforms:
+            Pulsed waveforms:
+                rect 
+                chirp
+                TODO: binary_phase_coded, etc.
+            Continuous waveforms: 
+                TODO: FMCW, etc.  
+
+    """
     @property
     def _classfile(self):
         return os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
@@ -61,18 +88,21 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
     def __init__(self, **kwargs): 
         self.print_log(type='I', msg='Initializing %s' %(__name__)) 
         
-        ## Constants
-        self.__c            = 299792458 # m/s
-
         # Radar siggen attributes
+        # NOTE: Needs to be defined as specified dataclass
         self.params = kwargs.get('signal_params')
 
-        # IO
-        self.IOS.Members['IQ_OUT'] = IO()
+        # Radar signal generator options
+        self.enable_periodic_pulse_generation = True
 
+
+        # IO 
+        self.IOS.Members['IQ_OUT'] = IO()
+        
     def run(self):
         self.main()
 
+    # ----- Signal Generator----- #
     def main(self):
         """
         Description:
@@ -81,30 +111,52 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
             2. Windows the signal to smoothen the pulse edge transients
             3. Assigns the signal to output IO
         """
-        #outval_IQ = np.array([])
-        #pulse_time = 1/self.params.prf
 
-        #pulse_repetitions = self.params.nsamp // self.time_as_samples(pulse_time)
-        #for _ in range(pulse_repetitions):
         outval_IQ = None
+        periods = []
+        if self.enable_periodic_pulse_generation:
+            for _ in range(ceil(self.pulse_count())):
+                # Chosen signal type is assigned to outputs via outval
+                match self.signal_type(): 
+                    case 'rect': 
+                      period = self.rect()
+                    case 'chirp': 
+                      period = self.chirp()
+                    # Other possible waveforms: 
+                    #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
+                    case _:
+                        self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
+                #periods.append(self.apply_window(period))
+                periods.append(period)
+            outval_IQ = np.concatenate(periods)
+        else:
+            # Chosen signal type is assigned to outputs via outval
+            match self.signal_type(): 
+                case 'rect': 
+                  period = self.rect()
+                case 'chirp': 
+                  period = self.chirp()
+                case _:
+                    self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
+            outval_IQ = self.apply_window(period)
+            #outval_IQ = np.concatenate((outval_IQ, self.apply_window(period)))
 
-        # Chosen signal type is assigned to outputs via outval
-        match self.signal_type(): 
-            case 'rect': 
-              outval_IQ = self.rect()
-            case 'chirp': 
-              outval_IQ = self.chirp()
-              #outval_IQ = self.chirp_bb()
-            # Other possible waveforms: 
-            #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
-            case _:
-                self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
-        outval_IQ = self.apply_window(outval_IQ)
-        #outval_IQ = np.concatenate((outval_IQ, self.apply_window(outval_IQ)))
+        # Output signal
+
+        
+        if self.params.snr is not None:
+            outval_IQ = self.apply_noise(outval_IQ)
+        #outval_IQ = self.apply_rms(outval_IQ)
         self.IOS.Members['IQ_OUT'].Data = outval_IQ
 
+    # Select signal type based on signal parameters
+    def signal_type(self):
+        sig_type = None
+        if isinstance(self.params, RadarRectParameters): return 'rect'
+        elif isinstance(self.params, RadarChirpParameters): return 'chirp'
+        else: return None # Calls unknown signal type error
 
-    # ----- Signal Type Generators ----- #
+    # ----- Signal Generators ----- #
     def rect(self):
         """
         Parameters:
@@ -114,8 +166,6 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         x : ndar[:64]ray(dtype=complex128)   # Generated pulse waveform I/Q samples
 
         """
-        #T, t_start, N, fs = self.T, self.t_start, self.N, self.fs
-        #fs, N = self.fs, self.N
         T, t_start, N, fs = self.tfall, self.tstart, self.nsamp, self.fs
 
         n_high = int(T*fs)
@@ -133,28 +183,29 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         Returns:
             chirp_pulse: np.complex128 = generated chirp signal
         """
-        import scipy
 
-        fs = self.params.fs
         f0 = 0
         T = self.params.pulse_time 
         B = self.params.bw
-        N = self.params.nsamp
+        N = self.time_as_samples(self.pri())
         phi0=-np.pi/2
 
-        t = np.arange(N) * T
-        n_end = int(T*fs)
-        t = np.arange(n_end)/fs
+        t = np.arange(N) * self.params.pulse_time
+        n_end = int(self.params.pulse_time*self.params.fs)
+        t = np.arange(n_end)/self.params.fs
 
         f1 = f0 -B/2
         f2 = f0 + B/2
 
         chirp_pulse = np.zeros(N, dtype=np.complex128)
-        chirp_pulse[:n_end] = scipy.signal.chirp(t, f1, T, f2, method='linear', phi=phi0, complex=True)
+        chirp_pulse[:n_end] = self.params.amp * chirp(t, f1, T, f2, method='linear', phi=phi0, complex=True)
 
         return chirp_pulse
+    
 
     # ----- Signal Processing ----- #
+    # Apply properties to existing signals
+
     def apply_window(self, s):
         """
         Description:
@@ -171,7 +222,7 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         window = self.params.window
 
         w = np.ones_like(s)
-        if window == 'no':
+        if window == 'none':
             w = w
         elif window == 'hamming':
             w = np.hamming(len(s))
@@ -188,16 +239,22 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
             self.print_log(type='W',msg='\'%s\' is not a valid windowing method. Defaulting to no window.' % self.param.window)
 
             s = s * w
-
+        
         return s
 
-    def signal_type(self):
-        sig_type = None
-        if isinstance(self.params, RadarRectParameters): return 'rect'
-        elif isinstance(self.params, RadarChirpParameters): return 'chirp'
-        else: return None
+    def apply_noise(self, s):
+        n = len(s)
+        sn = (np.random.randn(n) + 1j*np.random.randn(n)) * (1/(10**(self.params.snr/20.0)))
+        s = s+sn
+        return s
 
-    # ----- Equations and Calculations ----- #
+    def apply_rms(self, s):
+        s = s / np.sqrt(np.mean(np.abs(s)**2))
+        return s
+
+    # ----- Derivative Signal Properties ----- #
+    # Get/calculate derivative signal properties
+
     def time_as_samples(self, time_interval): 
         """
         Description:
@@ -210,14 +267,26 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         samples = int(time_interval * self.params.fs)
         return samples
 
-    def repetition_time(self):
+    def pri(self):
         """
         Description:
             How much time does one pulse repetition cycle take
         Returns:
-            repetition_time: float = number of samples
+            pri: float = pulse_repetition_interval
         """
-        return 1/self.params.prf
+        return 1/self.params.prf[0]
+
+    def pulse_count(self):
+        """
+        Description:
+            How many pulse repetition intervals fit within simulated time period
+        Returns:
+            pri_count: float
+        """
+        #pulse_time = 1/self.params.prf[0]
+        pulse_time = self.pri()
+        pulse_repetitions = self.params.nsamp / self.time_as_samples(pulse_time)
+        return pulse_repetitions
 
     def max_signal_range(self):
         """
@@ -226,7 +295,7 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         Returns:
             radar_range: int = number of samples
         """
-        return (self.__c * (self.repetition_time() - self.params.pulse_time)) / 2
+        return (const.c  * (self.pri() - self.params.pulse_time)) / 2
 
     def min_signal_range(self):
         """
@@ -235,7 +304,7 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         Returns:
           min_signal_range: float = 
         """
-        return self.__c * self.params.pulse_time / 2
+        return const.c * self.params.pulse_time / 2
 
     def osr(self): 
         """
@@ -254,7 +323,7 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         Returns:
             range_resolution: float = in meters
         """
-        return self.__c / (2*self.params.bw)
+        return const.c / (2*self.params.bw)
 
         
     def signal_time(self):
@@ -285,9 +354,11 @@ class radar_signal_generator(GenericTheSydekickSimTestbench):
         print('-' * full_width)
         print(f"| {'Generated Signal Time [s]':<{width_1}} | {self.signal_time():>{width_2}.3e} |")
         print('-' * full_width)
-        print(f"| {'PRF [Hz]':<{width_1}} | {self.params.prf:>{width_2}.3e} |")
+        print(f"| {'PRF [Hz]':<{width_1}} | {self.params.prf[0]:>{width_2}.3e} |")
         print('-' * full_width)
-        print(f"| {'Pulse Repetition Time [s]':<{width_1}} | {self.repetition_time():>{width_2}.3e} |")
+        print(f"| {'PRI [s]':<{width_1}} | {self.pri():>{width_2}.3e} |")
+        print('-' * full_width)
+        print(f"| {'Simulated Pulse Count':<{width_1}} | {self.pulse_count():>{width_2}.2f} |")
         print('-' * full_width)
         print(f"| {'Pulse time [s]':<{width_1}} | {self.params.pulse_time:>{width_2}.3e} |")
         print('-' * full_width)
@@ -319,9 +390,9 @@ if __name__=="__main__":
         'chirp_test':
         RadarChirpParameters( # TODO: Find realistic specs from some source
               fs            = 100e6,      # Sample rate
-              pulse_time    = 50e-6,        # Length of the radar pulse in seconds
-              prf           = 14e3,       # Pulse repetition frequency
-              bw            = 1e6,       # Bandwidth of the chirp linear frequency modulation
+              pulse_time    = 50e-6,      # Length of the radar pulse in seconds
+              prf           = [14e3],       # Pulse repetition frequency
+              bw            = 1e6,        # Bandwidth of the chirp linear frequency modulation
               nsamp         = 2**13,      # Number of samples in the output (total length of the generated signal)
               phase         = np.pi/2,    # Phase offset
               window        = 'tukey',    # Windowing algorithm for smooth transients
