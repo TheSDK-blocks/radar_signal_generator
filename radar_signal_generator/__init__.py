@@ -95,9 +95,9 @@ class radar_signal_generator(thesdk):
         # Radar signal generator options
         self.enable_periodic_pulse_generation = True
 
-
         # IO 
         self.IOS.Members['IQ_OUT'] = IO()
+        self.IOS.Members['IQ_REF_OUT'] = IO()
         
     def run(self):
         self.main()
@@ -111,7 +111,9 @@ class radar_signal_generator(thesdk):
             2. Windows the signal to smoothen the pulse edge transients
             3. Assigns the signal to output IO
         """
-
+        
+        full_output = None
+        pulse_output = None
         outval_IQ = None
         periods = []
         if self.enable_periodic_pulse_generation:
@@ -128,7 +130,8 @@ class radar_signal_generator(thesdk):
                         self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
                 #periods.append(self.apply_window(period))
                 periods.append(period)
-            outval_IQ = np.concatenate(periods)
+            full_output = np.concatenate(periods)
+            pulse_output = periods[0][0:ceil(self.params.fs*self.params.pulse_time)]
         else:
             # Chosen signal type is assigned to outputs via outval
             match self.signal_type(): 
@@ -138,16 +141,17 @@ class radar_signal_generator(thesdk):
                   period = self.chirp()
                 case _:
                     self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
-            outval_IQ = self.apply_window(period)
-            #outval_IQ = np.concatenate((outval_IQ, self.apply_window(period)))
+            full_output = self.apply_window(period)
+            pulse_output = full_output[0:ceil(self.params.fs*self.params.pulse_time)]
 
         # Output signal
 
         
-        if self.params.snr is not None:
-            outval_IQ = self.apply_noise(outval_IQ)
+        #if self.params.snr is not None:
+        #    full_output = self.apply_noise(full_output)
         #outval_IQ = self.apply_rms(outval_IQ)
-        self.IOS.Members['IQ_OUT'].Data = outval_IQ
+        self.IOS.Members['IQ_OUT'].Data = full_output
+        self.IOS.Members['IQ_REF_OUT'].Data  = pulse_output
 
     # Select signal type based on signal parameters
     def signal_type(self):
@@ -156,7 +160,7 @@ class radar_signal_generator(thesdk):
         elif isinstance(self.params, RadarChirpParameters): return 'chirp'
         else: return None # Calls unknown signal type error
 
-    # ----- Signal Generators ----- #
+    # ----- Generate Pulse Period ----- #
     def rect(self):
         """
         Parameters:
