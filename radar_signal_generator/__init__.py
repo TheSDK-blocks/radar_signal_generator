@@ -22,9 +22,9 @@ from dataclasses import dataclass
 from math import floor, ceil
 from scipy.signal import chirp
 
-# ------------------------------------------------------------
-# NOTE: Use Generic* dataclasses for inheritance when creating specific signal types
 
+# ---------- Generic signal dataclasses ---------- #
+# NOTE: Use Generic* dataclasses for inheritance when creating specific signal types
 @dataclass
 class GenericSignalParameters:
     """ All signal parameters common to all signal types. This is inherited 
@@ -34,6 +34,10 @@ class GenericSignalParameters:
     nsamp: int          = None          # Number of samples in the signal
     snr: float          = None
     amp: float          = None          # Amplitude of the generated signal
+    fc: float           = None          # Carrier frequency
+    # NOTE: fc can be used to generate passband signal directly without transmitter 
+    #       upconversion or used to model passband equivalent behaviour for baseband 
+    #       signal (needs less samples -> faster simulation speed).
 
 @dataclass
 class GenericPulsedRadarSignalParameters(GenericSignalParameters):
@@ -45,9 +49,8 @@ class GenericPulsedRadarSignalParameters(GenericSignalParameters):
     phase: float        = None          # Phase offset
     window: str         = None          # Windowing algorithm for smooth transitions
 
-# ------------------------------------------------------------
+# ---------- Signal type specific dataclasses ---------- #
 # NOTE: Define signal specific dataclasses here
-
 @dataclass
 class RadarRectParameters(GenericPulsedRadarSignalParameters):
     """ Extends pulsed radar signals with sinusoidal rect signal.
@@ -79,7 +82,6 @@ class radar_signal_generator(thesdk):
                 TODO: binary_phase_coded, etc.
             Continuous waveforms: 
                 TODO: FMCW, etc.  
-
     """
     @property
     def _classfile(self):
@@ -258,6 +260,11 @@ class radar_signal_generator(thesdk):
 
     # ----- Derivative Signal Properties ----- #
     # Get/calculate derivative signal properties
+    def pulse_power(self):
+        s = self.IOS.Members['IQ_REF_OUT'].Data
+        s = np.asarray(s)
+        P_signal = np.mean(np.abs(s)**2)
+        return P_signal
 
     def time_as_samples(self, time_interval): 
         """
@@ -353,6 +360,8 @@ class radar_signal_generator(thesdk):
         print(f"| {'Parameter':<{width_1}} | {'Value':>{width_2}} |")
         print("=" * full_width)
         print(f"| {'Signal type':<{width_1}} | {self.signal_type():>{width_2}} |")
+        print('-' * full_width)
+        print(f"| {'Power [W]':<{width_1}} | {self.pulse_power():>{width_2}.3e} |")
         print('-' * full_width)
         print(f"| {'Sample rate [Hz]':<{width_1}} | {self.params.fs:>{width_2}.3e} |")
         print('-' * full_width)
