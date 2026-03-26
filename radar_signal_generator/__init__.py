@@ -94,9 +94,8 @@ class radar_signal_generator(thesdk):
         # NOTE: Needs to be defined as specified dataclass
         self.params = kwargs.get('signal_params')
 
-        # Radar signal generator options
-        self.enable_periodic_pulse_generation = True
-
+        # Radar signal generator options 
+        self.enable_periodic_pulse_generation = True 
         # IO 
         self.IOS.Members['IQ_OUT'] = IO()
         self.IOS.Members['IQ_REF_OUT'] = IO()
@@ -126,11 +125,13 @@ class radar_signal_generator(thesdk):
                       period = self.rect()
                     case 'chirp': 
                       period = self.chirp()
+                    case 'binary_phase_coded': 
+                      period = self.binary_phase_coded()
                     # Other possible waveforms: 
                     #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
                     case _:
                         self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
-                #periods.append(self.apply_window(period))
+                periods.append(self.apply_window(period))
                 periods.append(period)
             full_output = np.concatenate(periods)
             pulse_output = periods[0][0:ceil(self.params.fs*self.params.pulse_time)]
@@ -236,7 +237,7 @@ class radar_signal_generator(thesdk):
             w = np.hanning(len(s))
         elif window == 'tukey':
             # Tukey alpha ~= 2*edge_frac so that each edge gets edge_frac of the pulse
-            edge_frac = 0.04    # NOTE: Use this to control tukey effectiveness
+            edge_frac = 0.04    # NOTE: Use this to control tukey effectiveness (good value edge_frac = 0.04)
             L = int(self.time_as_samples(self.params.pulse_time))
             w_short = tukey(L, alpha=2*edge_frac)
             w = s
