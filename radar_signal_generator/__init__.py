@@ -209,6 +209,10 @@ class radar_signal_generator(thesdk):
         # t = np.arange(N) * self.params.pulse_time
         n_end = int(self.params.pulse_time*self.params.fs)
         n_peak = n_end // 2
+        
+        t1 = np.arange(n_peak)/self.params.fs
+        t2 = np.arange(n_end)/self.params.fs
+        
         t = np.arange(n_end)/self.params.fs
 
         f1 = f0 -B/2
@@ -217,6 +221,13 @@ class radar_signal_generator(thesdk):
         chirp_pulse = np.zeros(N, dtype=np.complex128)
 
         # TODO: rewrite, so up ramp and down ramp are created seperatedly
+
+        """
+        chirp_pulse[:n_peak] = self.params.amp * chirp(t[:len(t)//2], f1, T, f2, method='linear', phi=phi0, complex=True)
+
+        chirp_pulse[n_peak:n_end] = self.params.amp * chirp(t[len(t)//2:], f2, T, f1, method='linear', phi=phi0, complex=True)
+        """
+
 
         chirp_pulse[:n_end] = self.params.amp * chirp(t, f1, T, f2, method='linear', phi=phi0, complex=True)
 
