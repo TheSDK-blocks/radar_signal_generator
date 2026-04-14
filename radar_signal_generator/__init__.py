@@ -62,7 +62,15 @@ class RadarRectParameters(GenericPulsedRadarSignalParameters):
 class RadarChirpParameters(GenericPulsedRadarSignalParameters):
     """ Extends pulsed radar signals with LFM chirp parameters
     """
-    bw: float           = None          # Modulation bandwith (f)   
+    bw: float           = None          # Modulation bandwidth (f)   
+
+
+@dataclass
+class RadarTriangularChirpParameters(GenericPulsedRadarSignalParameters):
+    """ Extends pulsed radar signals with LFM chirp parameters
+    """
+    bw: float           = None          # Again the Modulation bandwidth in (f)
+    mode: str           = "linear"      # method for the scipy.chirp function further down
 
 # TODO: Add dataclasses for new signal types here. 
 #       For example:
@@ -182,6 +190,38 @@ class radar_signal_generator(thesdk):
         x[n_start:n_end] = np.ones(n_end-n_start, dtype=np.complex128)
 
         return x
+
+    def triangular_chirp(self):
+        # TODO: edit this function to create a triangular chirp 
+        """
+        Description:
+            Chirp generation with scipy (not in use but here just in case)
+        Returns:
+            chirp_pulse: np.complex128 = generated chirp signal
+        """
+
+        f0 = 0
+        T = self.params.pulse_time 
+        B = self.params.bw
+        N = self.time_as_samples(self.pri())
+        phi0=-np.pi/2
+
+        # t = np.arange(N) * self.params.pulse_time
+        n_end = int(self.params.pulse_time*self.params.fs)
+        n_peak = n_end // 2
+        t = np.arange(n_end)/self.params.fs
+
+        f1 = f0 -B/2
+        f2 = f0 + B/2
+
+        chirp_pulse = np.zeros(N, dtype=np.complex128)
+
+        # TODO: rewrite, so up ramp and down ramp are created seperatedly
+
+        chirp_pulse[:n_end] = self.params.amp * chirp(t, f1, T, f2, method='linear', phi=phi0, complex=True)
+
+        return chirp_pulse
+
 
     def chirp(self):
         """
