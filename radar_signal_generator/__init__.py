@@ -6,10 +6,14 @@ Radar signal Generator
 
 import os
 import sys
-if not (os.path.abspath('../../thesdk') in sys.path):
-    sys.path.append(os.path.abspath('../../thesdk')) 
+
+thesdk_path = os.path.abspath(os.path.join(os.path.dirname(__file__),'../../thesdk'))
+if not thesdk_path in sys.path:
+    sys.path.append(thesdk_path)
+
 
 # The SyDeKick imports
+
 from thesdk import *
 #from thesdk import IO
 from plot_format                import set_style
@@ -20,28 +24,28 @@ import numpy as np
 import scipy.constants as const
 from dataclasses import dataclass
 from math import floor, ceil
-from scipy.signal import chirp
+from scipy.signal import chirp, hilbert
 
 
 # ---------- Generic signal dataclasses ---------- #
 # NOTE: Use Generic* dataclasses for inheritance when creating specific signal types
 @dataclass
 class GenericSignalParameters:
-    """ All signal parameters common to all signal types. This is inherited 
-    to create custom singal types. 
+    """ All signal parameters common to all signal types. This is inherited
+    to create custom singal types.
     """
     fs: float           = None          # Sample rate
     nsamp: int          = None          # Number of samples in the signal
     snr: float          = None
     amp: float          = None          # Amplitude of the generated signal
     fc: float           = None          # Carrier frequency
-    # NOTE: fc can be used to generate passband signal directly without transmitter 
-    #       upconversion or used to model passband equivalent behaviour for baseband 
+    # NOTE: fc can be used to generate passband signal directly without transmitter
+    #       upconversion or used to model passband equivalent behaviour for baseband
     #       signal (needs less samples -> faster simulation speed).
 
 @dataclass
 class GenericPulsedRadarSignalParameters(GenericSignalParameters):
-    """ All parameteres common to pulsed radar signals 
+    """ All parameteres common to pulsed radar signals
     """
     # Given parameters
     pulse_time: float   = None          # Pulse width (s)
@@ -62,7 +66,7 @@ class RadarRectParameters(GenericPulsedRadarSignalParameters):
 class RadarChirpParameters(GenericPulsedRadarSignalParameters):
     """ Extends pulsed radar signals with LFM chirp parameters
     """
-    bw: float           = None          # Modulation bandwidth (f)   
+    bw: float           = None          # Modulation bandwidth (f)
 
 
 @dataclass
@@ -72,9 +76,9 @@ class RadarTriangularChirpParameters(GenericPulsedRadarSignalParameters):
     bw: float           = None          # Again the Modulation bandwidth in (f)
     mode: str           = "linear"      # method for the scipy.chirp function further down
 
-# TODO: Add dataclasses for new signal types here. 
+# TODO: Add dataclasses for new signal types here.
 #       For example:
-#           BinaryPhaseCodedParameters(GenericPulsedRadarSignalParameters): 
+#           BinaryPhaseCodedParameters(GenericPulsedRadarSignalParameters):
 #           FrequencyModulatedContinuousWaveform(GenericSignalParameters): # FMCW
 
 # ------------------------------------------------------------
@@ -85,29 +89,29 @@ class radar_signal_generator(thesdk):
         This entity generates a radar signal based on given radar signal dataclass
         Supported waveforms:
             Pulsed waveforms:
-                rect 
+                rect
                 chirp
                 TODO: binary_phase_coded, etc.
-            Continuous waveforms: 
-                TODO: FMCW, etc.  
+            Continuous waveforms:
+                TODO: FMCW, etc.
     """
     @property
     def _classfile(self):
         return os.path.dirname(os.path.realpath(__file__)) + "/"+__name__
 
-    def __init__(self, **kwargs): 
-        self.print_log(type='I', msg='Initializing %s' %(__name__)) 
-        
+    def __init__(self, **kwargs):
+        self.print_log(type='I', msg='Initializing %s' %(__name__))
+
         # Radar siggen attributes
         # NOTE: Needs to be defined as specified dataclass
         self.params = kwargs.get('signal_params')
 
-        # Radar signal generator options 
-        self.enable_periodic_pulse_generation = True 
-        # IO 
+        # Radar signal generator options
+        self.enable_periodic_pulse_generation = True
+        # IO
         self.IOS.Members['IQ_OUT'] = IO()
         self.IOS.Members['IQ_REF_OUT'] = IO()
-        
+
     def run(self):
         self.main()
 
@@ -115,12 +119,12 @@ class radar_signal_generator(thesdk):
     def main(self):
         """
         Description:
-            Main method for the radar signal generator. 
+            Main method for the radar signal generator.
             1. Generates correct signal type based in given params
             2. Windows the signal to smoothen the pulse edge transients
             3. Assigns the signal to output IO
         """
-        
+
         full_output = None
         pulse_output = None
         outval_IQ = None
@@ -128,14 +132,16 @@ class radar_signal_generator(thesdk):
         if self.enable_periodic_pulse_generation:
             for _ in range(ceil(self.pulse_count())):
                 # Chosen signal type is assigned to outputs via outval
-                match self.signal_type(): 
-                    case 'rect': 
+                match self.signal_type():
+                    case 'rect':
                       period = self.rect()
-                    case 'chirp': 
+                    case 'chirp':
                       period = self.chirp()
-                    case 'binary_phase_coded': 
+                    case 'tri_chirp':
+                      period = self.tri_chirp()
+                    case 'binary_phase_coded':
                       period = self.binary_phase_coded()
-                    # Other possible waveforms: 
+                    # Other possible waveforms:
                     #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
                     case _:
                         self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
@@ -145,10 +151,10 @@ class radar_signal_generator(thesdk):
             pulse_output = periods[0][0:ceil(self.params.fs*self.params.pulse_time)]
         else:
             # Chosen signal type is assigned to outputs via outval
-            match self.signal_type(): 
-                case 'rect': 
+            match self.signal_type():
+                case 'rect':
                   period = self.rect()
-                case 'chirp': 
+                case 'chirp':
                   period = self.chirp()
                 case _:
                     self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
@@ -157,7 +163,7 @@ class radar_signal_generator(thesdk):
 
         # Output signal
 
-        
+
         #if self.params.snr is not None:
         #    full_output = self.apply_noise(full_output)
         #outval_IQ = self.apply_rms(outval_IQ)
@@ -169,6 +175,7 @@ class radar_signal_generator(thesdk):
         sig_type = None
         if isinstance(self.params, RadarRectParameters): return 'rect'
         elif isinstance(self.params, RadarChirpParameters): return 'chirp'
+        elif isinstance(self.params, RadarTriangularChirpParameters): return 'tri_chirp'
         else: return None # Calls unknown signal type error
 
     # ----- Generate Pulse Period ----- #
@@ -191,45 +198,61 @@ class radar_signal_generator(thesdk):
 
         return x
 
-    def triangular_chirp(self):
-        # TODO: edit this function to create a triangular chirp 
-        """
-        Description:
-            Chirp generation with scipy (not in use but here just in case)
-        Returns:
-            chirp_pulse: np.complex128 = generated chirp signal
-        """
+    def tri_chirp(self):
 
-        f0 = 0
-        T = self.params.pulse_time 
+        f0 = 0.0
+        T = self.params.pulse_time
         B = self.params.bw
         N = self.time_as_samples(self.pri())
-        phi0=-np.pi/2
+        phi0_rad = -np.pi / 2.0
+        phi0_deg = phi0_rad * 180.0 / np.pi
 
-        # t = np.arange(N) * self.params.pulse_time
-        n_end = int(self.params.pulse_time*self.params.fs)
-        n_peak = n_end // 2
-        
-        t1 = np.arange(n_peak)/self.params.fs
-        t2 = np.arange(n_end)/self.params.fs
-        
-        t = np.arange(n_end)/self.params.fs
+        fs = self.params.fs
+        dt = 1.0 / fs
+        n_end = int(T * fs)
 
-        f1 = f0 -B/2
-        f2 = f0 + B/2
+        t = np.arange(n_end) * dt
+        half_T = T / 2.0
 
+        # Edge frequencies
+        f1 = f0 - B / 2.0  # lowest at t = 0 and t = T
+        f2 = f0 + B / 2.0  # highest at t = T/2
+
+        # Slope for each half (Hz/s)
+        k = (f2 - f1) / half_T
+
+        # Masks and relative times
+        mask_up = t < half_T
+        t_up = t[mask_up]                 # 0 .. T/2
+        t_down = t[~mask_up]              # T/2 .. T
+        t_down_rel = t_down - half_T      # 0 .. T/2 for the down-sweep
+
+        # Phase continuity at T/2:
+        # phi_mid = phi0 + 2*pi * ∫_0^{T/2} f(τ) dτ = phi0 + 2*pi*(f1*half_T + 0.5*k*half_T^2)
+        phase_mid_rad = phi0_rad + 2.0 * np.pi * (f1 * half_T + 0.5 * k * half_T * half_T)
+        phi_mid_deg = (phase_mid_rad * 180.0 / np.pi) % 360.0
+
+        try:
+            # Newer SciPy versions: chirp supports complex=True (analytic signal)
+            y_up = chirp(t_up, f0=f1, t1=half_T, f1=f2, method=self.params.mode, phi=phi0_deg, complex=True)
+            y_down = chirp(t_down_rel, f0=f2, t1=half_T, f1=f1, method=self.params.mode, phi=phi_mid_deg, complex=True)
+            y = np.empty(n_end, dtype=np.complex128)
+            y[mask_up] = y_up
+            y[~mask_up] = y_down
+        except TypeError:
+            # Fallback for SciPy versions without complex=True:
+            # Generate real chirps for each half with proper phase continuity, then make analytic via Hilbert.
+            y_up = chirp(t_up, f0=f1, t1=half_T, f1=f2, method=self.params.mode, phi=phi0_deg, complex=False)
+            y_down = chirp(t_down_rel, f0=f2, t1=half_T, f1=f1, method=self.params.mode, phi=phi_mid_deg, complex=False)
+            y_real = np.empty(n_end, dtype=float)
+            y_real[mask_up] = y_up
+            y_real[~mask_up] = y_down
+            y = hilbert(y_real).astype(np.complex128)
+
+        # Scale amplitude and place into an N-length buffer
+        tri_chirp_complex = self.params.amp * y
         chirp_pulse = np.zeros(N, dtype=np.complex128)
-
-        # TODO: rewrite, so up ramp and down ramp are created seperatedly
-
-        """
-        chirp_pulse[:n_peak] = self.params.amp * chirp(t[:len(t)//2], f1, T, f2, method='linear', phi=phi0, complex=True)
-
-        chirp_pulse[n_peak:n_end] = self.params.amp * chirp(t[len(t)//2:], f2, T, f1, method='linear', phi=phi0, complex=True)
-        """
-
-
-        chirp_pulse[:n_end] = self.params.amp * chirp(t, f1, T, f2, method='linear', phi=phi0, complex=True)
+        chirp_pulse[:n_end] = tri_chirp_complex
 
         return chirp_pulse
 
@@ -243,7 +266,7 @@ class radar_signal_generator(thesdk):
         """
 
         f0 = 0
-        T = self.params.pulse_time 
+        T = self.params.pulse_time
         B = self.params.bw
         N = self.time_as_samples(self.pri())
         phi0=-np.pi/2
@@ -259,7 +282,7 @@ class radar_signal_generator(thesdk):
         chirp_pulse[:n_end] = self.params.amp * chirp(t, f1, T, f2, method='linear', phi=phi0, complex=True)
 
         return chirp_pulse
-    
+
 
     # ----- Signal Processing ----- #
     # Apply properties to existing signals
@@ -267,14 +290,14 @@ class radar_signal_generator(thesdk):
     def apply_window(self, s):
         """
         Description:
-            Applies selected window type to input signal. Main purpose is to smoothen the transient 
+            Applies selected window type to input signal. Main purpose is to smoothen the transient
             at the end of the pulse.
         Parameters:
             s: np.complex128    = unwindowed radar signal
-        Returns:  
+        Returns:
             s: np.compex128     = windowed signal
         """
-        
+
         from scipy.signal.windows import tukey
 
         window = self.params.window
@@ -297,7 +320,7 @@ class radar_signal_generator(thesdk):
             self.print_log(type='W',msg='\'%s\' is not a valid windowing method. Defaulting to no window.' % self.param.window)
 
             s = s * w
-        
+
         return s
 
     def apply_noise(self, s):
@@ -318,11 +341,11 @@ class radar_signal_generator(thesdk):
         P_signal = np.mean(np.abs(s)**2)
         return P_signal
 
-    def time_as_samples(self, time_interval): 
+    def time_as_samples(self, time_interval):
         """
         Description:
-            Calculates number of samples in any given time interval 
-        Param: 
+            Calculates number of samples in any given time interval
+        Param:
             time_interval: float = any time frame (s)
         Returns:
             samples: int = number of samples
@@ -354,7 +377,7 @@ class radar_signal_generator(thesdk):
     def max_signal_range(self):
         """
         Description:
-            Calculates the maximum range 
+            Calculates the maximum range
         Returns:
             radar_range: int = number of samples
         """
@@ -365,11 +388,11 @@ class radar_signal_generator(thesdk):
         Description:
           Calculates minimum range (assuming the transmission and reception cannot overlap)
         Returns:
-          min_signal_range: float = 
+          min_signal_range: float =
         """
         return const.c * self.params.pulse_time / 2
 
-    def osr(self): 
+    def osr(self):
         """
         Description:
             Calculates the oversampling ratio from highest frequency and sample rate
@@ -381,14 +404,14 @@ class radar_signal_generator(thesdk):
     def range_resolution(self):
         """
         Description:
-            Calculates the range resolution (the maximum detectable difference between 
+            Calculates the range resolution (the maximum detectable difference between
             multiple objects/reflections)
         Returns:
             range_resolution: float = in meters
         """
         return const.c / (2*self.params.bw)
 
-        
+
     def signal_time(self):
         """
         Description:
@@ -402,7 +425,7 @@ class radar_signal_generator(thesdk):
     def print_signal_specs(self):
         """
         Description:
-            Prints a table of all information and specs that can be determined from from the 
+            Prints a table of all information and specs that can be determined from from the
             generated signal.
         """
         width_1 = 25
@@ -454,44 +477,60 @@ if __name__=="__main__":
     test_cases = {
         'chirp_test':
         RadarChirpParameters( # TODO: Find realistic specs from some source
+              amp           = 1,          # Amp
               fs            = 100e6,      # Sample rate
               pulse_time    = 50e-6,      # Length of the radar pulse in seconds
               prf           = [14e3],       # Pulse repetition frequency
               bw            = 1e6,        # Bandwidth of the chirp linear frequency modulation
-              nsamp         = 2**13,      # Number of samples in the output (total length of the generated signal)
+              nsamp         = 2**10,      # Number of samples in the output (total length of the generated signal)
               phase         = np.pi/2,    # Phase offset
-              window        = 'tukey',    # Windowing algorithm for smooth transients
-        )
+              window        = 'tukey',    # Windowing algorithm for smooth transients,
+        ),
+        'tri_chirp_test':
+        RadarTriangularChirpParameters(
+              amp           = 1,          # Amp
+              fs            = 100e6,      # Sample rate
+              pulse_time    = 50e-6,      # Length of the radar pulse in seconds
+              prf           = [14e3],       # Pulse repetition frequency
+              bw            = 1e6,        # Bandwidth of the chirp linear frequency modulation
+              nsamp         = 2**10,      # Number of samples in the output (total length of the generated signal)
+              phase         = np.pi/2,    # Phase offset
+              window        = 'tukey',    # Windowing algorithm for smooth transients,
+              mode          = "linear",   # {‘linear’, ‘quadratic’, ‘hyperbolic’}, optional
+        ),
     }
 
-    chosen_test_case = 'chirp_test'
-    
-    dut = radar_signal_generator()
-    dut.params = test_cases[chosen_test_case]
-    dut.run()
+    list_of_tests = [
+        # 'chirp_test',
+        'tri_chirp_test'
+        ]
+    for chosen_test_case in list_of_tests:
+        dut = radar_signal_generator()
+        dut.params = test_cases[chosen_test_case]
+        dut.run()
 
-    r = np.complex128(dut.IOS.Members['IQ_OUT'].Data)
-       
-    # Genearte header file
-    # TODO: Adjust scaling coefficient for header generation
-    header_scaling_coeff = 65536
-    r_scaled = scale_dbm(r, -30)
-    if True: 
-        dsp_toolkit.generate_header(
-            r,
-            I = r_scaled.real*header_scaling_coeff, 
-            Q = r_scaled.imag*header_scaling_coeff, 
-            header_file_path = "generated_header.h"
-       )
+        r = np.complex128(dut.IOS.Members['IQ_OUT'].Data)
 
-    # TODO: plotting with signal analyser
-    
-    plot_simple(r, dut.params.fs, label='Chirp')
-    plot_bb_spectrum(r, 400e6, scale='dbfs', window='rect', color='black', ylim=[-100,10])
-    dut.print_signal_specs()
-    
+        # Genearte header file
+        # TODO: Adjust scaling coefficient for header generation
+        header_scaling_coeff = 65536
+        r_scaled = scale_dbm(r, -30)
+        if True:
+            dsp_toolkit.generate_header(
+                r,
+                I = r_scaled.real*header_scaling_coeff,
+                Q = r_scaled.imag*header_scaling_coeff,
+                header_file_path = "generated_header.h"
+        )
+
+        # TODO: plotting with signal analyser
+
+        plot_simple(r, dut.params.fs, label=chosen_test_case)
+        plot_bb_spectrum(r, 400e6, scale='dbfs', window='rect', color='black', ylim=[-100,10])
+        dut.print_signal_specs()
+
 
     # Show plot
     plt.show()
-    
+
     input()
