@@ -107,10 +107,11 @@ def scale_dbm(x, dbm):
 
     return x * gain_ampl
 
-def plot_simple(x, fs, label="Time-domain signal"):
+def plot_simple(x, fs, figsize=(16,9), label="Time-domain signal", x_lim_factor=1):
     t = np.arange(len(x))/fs
-    plt.figure()
+    plt.figure(figsize=figsize)
     plt.plot(t*1e6, np.real(x), 'k', marker='o', markersize=1)
+    # plt.xlim(0, t[-1]*1e6 / x_lim_factor)
     plt.xlabel("Time (µs)")
     plt.ylabel("Value")
     plt.title(label)
