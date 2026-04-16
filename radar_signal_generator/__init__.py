@@ -486,23 +486,37 @@ if __name__=="__main__":
               phase         = np.pi/2,    # Phase offset
               window        = 'tukey',    # Windowing algorithm for smooth transients,
         ),
+        'tri_chirp_test_ref':
+        RadarTriangularChirpParameters(
+              amp           = 1,          # Amp
+              fs            = 100e6,      # Sample rate
+              pulse_time    = 50e-6,      # Length of the radar pulse in seconds
+              prf           = [14e3],     # Pulse repetition frequency
+              bw            = 1e6,        # Bandwidth of the chirp linear frequency modulation
+              nsamp         = 2**11,      # Number of samples in the output (total length of the generated signal)
+              phase         = np.pi/2,    # Phase offset
+              window        = 'tukey',    # Windowing algorithm for smooth transients,
+              mode          = "linear",   # {‘linear’, ‘quadratic’, ‘hyperbolic’}, optional
+        ),
         'tri_chirp_test':
         RadarTriangularChirpParameters(
               amp           = 1,          # Amp
               fs            = 100e6,      # Sample rate
               pulse_time    = 50e-6,      # Length of the radar pulse in seconds
-              prf           = [14e3],       # Pulse repetition frequency
-              bw            = 1e6,        # Bandwidth of the chirp linear frequency modulation
-              nsamp         = 2**10,      # Number of samples in the output (total length of the generated signal)
+              prf           = [5e3],       # Pulse repetition frequency
+              bw            = 2e6,        # Bandwidth of the chirp linear frequency modulation
+              nsamp         = 2**11,      # Number of samples in the output (total length of the generated signal)
               phase         = np.pi/2,    # Phase offset
               window        = 'tukey',    # Windowing algorithm for smooth transients,
               mode          = "linear",   # {‘linear’, ‘quadratic’, ‘hyperbolic’}, optional
         ),
     }
+    
 
     list_of_tests = [
         # 'chirp_test',
-        'tri_chirp_test'
+        'tri_chirp_test_ref',
+        'tri_chirp_test',
         ]
     for chosen_test_case in list_of_tests:
         dut = radar_signal_generator()
@@ -525,8 +539,9 @@ if __name__=="__main__":
 
         # TODO: plotting with signal analyser
 
-        plot_simple(r, dut.params.fs, label=chosen_test_case)
-        plot_bb_spectrum(r, 400e6, scale='dbfs', window='rect', color='black', ylim=[-100,10])
+        plot_simple(r, dut.params.fs, figsize=(20, 8), label=chosen_test_case, x_lim_factor=2)
+        
+        # plot_bb_spectrum(r, 400e6, scale='dbfs', window='rect', color='black', ylim=[-100,10])
         dut.print_signal_specs()
 
 
