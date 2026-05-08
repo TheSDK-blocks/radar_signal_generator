@@ -8,6 +8,7 @@ import os
 import sys
 if not (os.path.abspath('../../thesdk') in sys.path):
     sys.path.append(os.path.abspath('../../thesdk')) 
+import pdb
 
 # The SyDeKick imports
 from thesdk import *
@@ -35,6 +36,7 @@ class GenericSignalParameters:
     snr: float          = None
     amp: float          = None          # Amplitude of the generated signal
     fc: float           = None          # Carrier frequency
+    ch: list            = None          # List of channels
     # NOTE: fc can be used to generate passband signal directly without transmitter 
     #       upconversion or used to model passband equivalent behaviour for baseband 
     #       signal (needs less samples -> faster simulation speed).
@@ -69,7 +71,7 @@ class RadarChirpParameters(GenericPulsedRadarSignalParameters):
 #           BinaryPhaseCodedParameters(GenericPulsedRadarSignalParameters): 
 #           FrequencyModulatedContinuousWaveform(GenericSignalParameters): # FMCW
 
-# ------------------------------------------------------------
+# ------------------------------------------------------ #
 
 class radar_signal_generator(thesdk):
     """
@@ -94,16 +96,22 @@ class radar_signal_generator(thesdk):
         # NOTE: Needs to be defined as specified dataclass
         self.params = kwargs.get('signal_params')
 
-        # Radar signal generator options 
-        self.enable_periodic_pulse_generation = True 
+        # Advanced radar signal generator options
+        self.enable_periodic_pulse_generation = True # Disable for only one pulse
+        self.full_pri_output = False # Enable for non-clipped PRIs (NOTE: by enabling signal length diverges from nsamp)
         # IO 
         self.IOS.Members['IQ_OUT'] = IO()
         self.IOS.Members['IQ_REF_OUT'] = IO()
+
+        self.init()
+
+    def init(self):
+        pass
         
     def run(self):
         self.main()
 
-    # ----- Signal Generator----- #
+    # ----- Signal Generator ----- #
     def main(self):
         """
         Description:
@@ -117,44 +125,60 @@ class radar_signal_generator(thesdk):
         pulse_output = None
         outval_IQ = None
         periods = []
+
         if self.enable_periodic_pulse_generation:
-            for _ in range(ceil(self.pulse_count())):
-                # Chosen signal type is assigned to outputs via outval
-                match self.signal_type(): 
-                    case 'rect': 
-                      period = self.rect()
-                    case 'chirp': 
-                      period = self.chirp()
-                    case 'binary_phase_coded': 
-                      period = self.binary_phase_coded()
-                    # Other possible waveforms: 
-                    #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
-                    case _:
-                        self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
-                periods.append(self.apply_window(period))
+            for _ in range(ceil(self.pulse_count())): # TODO: Optimize this by reusing single generated pulse instead of generating a new pulse every loop
+                # Iterate generated signal over predetermined channels
+                channel_periods = []
+                for f_ch in self.params.ch:
+                    # Chosen signal type is assigned to outputs via outval
+                    match self.signal_type(): 
+                        case 'rect': 
+                            pulse = self.rect()
+                        case 'chirp': 
+                            pulse = self.chirp()
+                        case 'binary_phase_coded': 
+                            pulse = self.binary_phase_coded()
+                        # Other possible waveforms: 
+                        #'binary phase coded', 'non-linear FM', 'discrete frequency-shift', 'polyphase codes', 'compound Barker codes', 'code sequencing', 'complementary codes', 'pulse burst', 'stretch'
+                        case _:
+                            self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
+                    # Apply upconversion to the generated and windowed signal
+                    #channel_period = self.apply_window(pulse)
+                    channel_period = self.apply_upconversion(self.apply_window(pulse), f_ch)
+                    
+                    # Apply one channe period to list of all channels in a period
+                    channel_periods.append(channel_period)
+                # Sum channels together in one period
+                period = np.sum(channel_periods, axis=0)
+                # Append multi channel period to list of all periods
                 periods.append(period)
+            # Output variables
             full_output = np.concatenate(periods)
-            pulse_output = periods[0][0:ceil(self.params.fs*self.params.pulse_time)]
+            pulse_output = pulse[0:self.time_as_samples(self.params.pulse_time)]
+            #pulse_output = full_output[0:ceil(self.params.fs*self.params.pulse_time)]
+            #pulse_output = periods[0][0:ceil(self.params.fs*self.params.pulse_time)]
+
         else:
             # Chosen signal type is assigned to outputs via outval
             match self.signal_type(): 
                 case 'rect': 
-                  period = self.rect()
+                    period = self.rect()
                 case 'chirp': 
-                  period = self.chirp()
+                    period = self.chirp()
                 case _:
                     self.print_log(type='F',msg='Signal type \'%s\' not supported.' % self.params.sigtype)
+            # Output variables
             full_output = self.apply_window(period)
             pulse_output = full_output[0:ceil(self.params.fs*self.params.pulse_time)]
-
         # Output signal
-
-        
         #if self.params.snr is not None:
         #    full_output = self.apply_noise(full_output)
         #outval_IQ = self.apply_rms(outval_IQ)
-        self.IOS.Members['IQ_OUT'].Data = full_output
-        self.IOS.Members['IQ_REF_OUT'].Data  = pulse_output
+
+        if not self.full_pri_output: full_output = full_output[0:self.params.nsamp]
+        self.IOS.Members['IQ_OUT'].Data     = full_output
+        self.IOS.Members['IQ_REF_OUT'].Data = pulse_output
 
     # Select signal type based on signal parameters
     def signal_type(self):
@@ -259,6 +283,15 @@ class radar_signal_generator(thesdk):
         s = s / np.sqrt(np.mean(np.abs(s)**2))
         return s
 
+    def apply_upconversion(self, s, f_ch):
+        import matplotlib.pyplot as plt
+        import scipy.constants as const
+        f_nyquist = self.params.fs/2
+        assert (f_ch < f_nyquist - self.params.bw/2), 'Channel frequency exceeds Nyquist frequency'
+        t = np.arange(self.params.fs*1/self.params.prf[0])/self.params.fs
+        s_ch = s * np.exp(2*const.pi*1j*f_ch * t)
+        return s_ch
+
     # ----- Derivative Signal Properties ----- #
     # Get/calculate derivative signal properties
     def pulse_power(self):
@@ -295,7 +328,6 @@ class radar_signal_generator(thesdk):
         Returns:
             pri_count: float
         """
-        #pulse_time = 1/self.params.prf[0]
         pulse_time = self.pri()
         pulse_repetitions = self.params.nsamp / self.time_as_samples(pulse_time)
         return pulse_repetitions
